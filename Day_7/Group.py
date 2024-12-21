@@ -3,12 +3,18 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
 from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
+import time
+
+# Set page configuration
+st.set_page_config(page_title="Student Depression Analysis", layout="wide")
 
 # Streamlit app title
 st.title("Student Depression Analysis")
@@ -40,10 +46,8 @@ if uploaded_file:
     selected_columns = st.multiselect("Select columns for correlation matrix", df.columns.tolist(), default=df.columns.tolist())
     if selected_columns:
         correlation_matrix = df[selected_columns].corr()
-        plt.figure(figsize=(8, 6))
-        sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', fmt=".2f", linewidths=0.5)
-        plt.title('Correlation Matrix')
-        st.pyplot(plt)
+        fig = px.imshow(correlation_matrix, text_auto=True, color_continuous_scale='Viridis', title="Correlation Matrix")
+        st.plotly_chart(fig)
 
     # Boxplots
     st.subheader("Boxplots: Numerical Features by Depression")
@@ -52,10 +56,8 @@ if uploaded_file:
 
     selected_boxplot_feature = st.selectbox("Select a feature for boxplot", numerical_features)
     if selected_boxplot_feature:
-        plt.figure(figsize=(8, 6))
-        sns.boxplot(x='Depression', y=selected_boxplot_feature, data=df, palette='coolwarm')
-        plt.title(f'Depression vs {selected_boxplot_feature}')
-        st.pyplot(plt)
+        fig = px.box(df, x='Depression', y=selected_boxplot_feature, color='Depression', title=f'Depression vs {selected_boxplot_feature}')
+        st.plotly_chart(fig)
 
     # Bar chart for men and women with depression
     st.subheader("Comparison of Men and Women with Depression")
@@ -70,14 +72,9 @@ if uploaded_file:
     categories = ['Men with Depression', 'Women with Depression']
     counts = [men_depression_count, women_depression_count]
 
-    plt.figure(figsize=(8, 6))
-    ax = sns.barplot(x=categories, y=counts, palette='coolwarm')
-    for i, value in enumerate(counts):
-        ax.text(i, value / 2, str(value), ha='center', va='center', fontsize=12, color='black')
-    plt.xlabel('Gender with Depression')
-    plt.ylabel('Count')
-    plt.title('Comparison of Men and Women with Depression')
-    st.pyplot(plt)
+    fig = px.bar(x=categories, y=counts, text=counts, title="Comparison of Men and Women with Depression", labels={'x': 'Category', 'y': 'Count'}, color=categories)
+    fig.update_traces(textposition='outside')
+    st.plotly_chart(fig)
 
     # Model training and prediction
     st.subheader("Train a Classification Model")
@@ -93,32 +90,77 @@ if uploaded_file:
         model_results = []
 
         # Random Forest Classifier
+        st.write("Training Random Forest Classifier...")
+        rf_progress = st.progress(0)
         rf_model = RandomForestClassifier(random_state=42)
+        start_time = time.time()
+        for i in range(1, 101):
+            time.sleep(0.01)
+            rf_progress.progress(i)
         rf_model.fit(X_train, y_train)
+        rf_training_time = time.time() - start_time
         rf_pred = rf_model.predict(X_test)
         rf_accuracy = accuracy_score(y_test, rf_pred)
-        model_results.append(("Random Forest", rf_accuracy, rf_pred))
+        model_results.append(("Random Forest", rf_accuracy, rf_pred, rf_training_time))
 
         # MLP Classifier
+        st.write("Training MLP Classifier...")
+        mlp_progress = st.progress(0)
         mlp_model = MLPClassifier(random_state=42, max_iter=1000)
+        start_time = time.time()
+        for i in range(1, 101):
+            time.sleep(0.01)
+            mlp_progress.progress(i)
         mlp_model.fit(X_train, y_train)
+        mlp_training_time = time.time() - start_time
         mlp_pred = mlp_model.predict(X_test)
         mlp_accuracy = accuracy_score(y_test, mlp_pred)
-        model_results.append(("MLP Classifier", mlp_accuracy, mlp_pred))
+        model_results.append(("MLP Classifier", mlp_accuracy, mlp_pred, mlp_training_time))
 
         # Support Vector Machine Classifier
+        st.write("Training SVM Classifier...")
+        svm_progress = st.progress(0)
         svm_model = SVC(random_state=42)
+        start_time = time.time()
+        for i in range(1, 101):
+            time.sleep(0.01)
+            svm_progress.progress(i)
         svm_model.fit(X_train, y_train)
+        svm_training_time = time.time() - start_time
         svm_pred = svm_model.predict(X_test)
         svm_accuracy = accuracy_score(y_test, svm_pred)
-        model_results.append(("SVM Classifier", svm_accuracy, svm_pred))
+        model_results.append(("SVM Classifier", svm_accuracy, svm_pred, svm_training_time))
 
         # Find the best model
         best_model = max(model_results, key=lambda x: x[1])
         st.write(f"## Best Model: {best_model[0]}")
         st.write("Accuracy:", best_model[1])
+        st.write("Training Time (seconds):", round(best_model[3], 2))
+
+        # Visualize accuracies of all models
+        st.subheader("Model Comparison")
+        model_names = [result[0] for result in model_results]
+        accuracies = [result[1] for result in model_results]
+        training_times = [result[3] for result in model_results]
+
+        comparison_df = pd.DataFrame({
+            'Model': model_names,
+            'Accuracy': accuracies,
+            'Training Time (s)': training_times
+        })
+
+        st.dataframe(comparison_df)
+
+        fig = px.bar(comparison_df, x='Model', y='Accuracy', color='Model', text='Accuracy', title='Model Accuracy Comparison')
+        fig.update_traces(textposition='outside')
+        st.plotly_chart(fig)
+
+        # Confusion Matrix Heatmap
         st.write("Confusion Matrix:")
-        st.write(confusion_matrix(y_test, best_model[2]))
+        cm = confusion_matrix(y_test, best_model[2])
+        fig = px.imshow(cm, text_auto=True, color_continuous_scale='Viridis', title=f'Confusion Matrix - {best_model[0]}', labels={'x': 'Predicted', 'y': 'Actual'})
+        st.plotly_chart(fig)
+
         st.write("Classification Report:")
         st.text(classification_report(y_test, best_model[2]))
 
