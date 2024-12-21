@@ -46,7 +46,7 @@ if uploaded_file:
     selected_columns = st.multiselect("Select columns for correlation matrix", df.columns.tolist(), default=df.columns.tolist())
     if selected_columns:
         correlation_matrix = df[selected_columns].corr()
-        fig = px.imshow(correlation_matrix, text_auto=True, color_continuous_scale='Viridis', title="Correlation Matrix")
+        fig = px.imshow(correlation_matrix, text_auto=True, color_continuous_scale='Viridis', title="Correlation Matrix", width=800, height=800)
         st.plotly_chart(fig)
 
     # Boxplots
