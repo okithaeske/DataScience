@@ -57,93 +57,136 @@ if uploaded_file:
     st.subheader("Data Summary")
     st.write(df.describe())
 
-    # Correlation matrix
-    st.subheader("Correlation Matrix")
-    selected_columns = st.multiselect("Select columns for correlation matrix", df.columns.tolist(), default=df.columns.tolist())
-    if selected_columns:
-        correlation_matrix = df[selected_columns].corr()
-        fig = px.imshow(correlation_matrix, text_auto=True, color_continuous_scale='Viridis', title="Correlation Matrix", width=800, height=800)
-        st.plotly_chart(fig)
+    # Automatic Target Column Detection
+    st.subheader("Automatic Target Column Detection")
 
-    # Boxplots
-    st.subheader("Boxplots: Numerical Features")
-    numerical_features = df.select_dtypes(include=['float64', 'int64']).columns
+    # Determine potential target columns
+    numeric_columns = df.select_dtypes(include=['float64', 'int64']).columns.tolist()
+    categorical_columns = df.select_dtypes(include=['object', 'category']).columns.tolist()
 
-    selected_boxplot_feature = st.selectbox("Select a feature for boxplot", numerical_features)
-    if selected_boxplot_feature:
-        fig = px.box(df, y=selected_boxplot_feature, title=f'Distribution of {selected_boxplot_feature}')
-        st.plotly_chart(fig)
+    # Find a column with a high correlation to other columns
+    if len(numeric_columns) > 1:
+        correlation_with_others = df[numeric_columns].corr().abs().sum().sort_values(ascending=False)
+        suggested_target = correlation_with_others.index[0]  # Most correlated column
+    else:
+        # Fallback to categorical columns with limited unique values
+        unique_counts = df[categorical_columns].nunique()
+        suggested_target = unique_counts.idxmin() if not unique_counts.empty else None
 
-    # Model training and prediction
-    st.subheader("Train a Classification Model")
-    target_column = st.selectbox("Select the target column", df.columns.tolist())
-    feature_columns = st.multiselect("Select feature columns", df.columns.tolist(), default=[col for col in df.columns if col != target_column])
+    if suggested_target:
+        st.write(f"Suggested Target Column: **{suggested_target}** (based on correlation/uniqueness)")
+    else:
+        st.write("No clear target column identified. Please select manually or proceed with exploratory analysis.")
 
-    if feature_columns and target_column:
-        X = df[feature_columns]
-        y = df[target_column]
+    # Allow user to select or override the target column
+    target_column = st.selectbox("Select the target column", [None] + df.columns.tolist(), index=0 if not suggested_target else df.columns.get_loc(suggested_target) + 1)
 
-        scaler = StandardScaler()
-        X = scaler.fit_transform(X)
+    if target_column:
+        # Select feature columns excluding the target
+        feature_columns = st.multiselect(
+            "Select feature columns", df.columns.tolist(), default=[col for col in df.columns if col != target_column]
+        )
 
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+        # Correlation matrix
+        st.subheader("Correlation Matrix")
+        selected_columns = st.multiselect("Select columns for correlation matrix", df.columns.tolist(), default=df.columns.tolist())
+        if selected_columns:
+            correlation_matrix = df[selected_columns].corr()
+            fig = px.imshow(correlation_matrix, text_auto=True, color_continuous_scale='Viridis', title="Correlation Matrix", width=800, height=800)
+            st.plotly_chart(fig)
 
-        model_results = []
+        # Boxplots
+        st.subheader("Boxplots: Numerical Features")
+        numerical_features = df.select_dtypes(include=['float64', 'int64']).columns
 
-        classifiers = {
-            "Random Forest": RandomForestClassifier(random_state=42),
-            "Gradient Boosting": GradientBoostingClassifier(random_state=42),
-            "MLP Classifier": MLPClassifier(random_state=42, max_iter=1000),
-            "SVM Classifier": SVC(random_state=42, probability=True),
-            "Decision Tree": DecisionTreeClassifier(random_state=42),
-            "Logistic Regression": LogisticRegression(random_state=42)
-        }
+        selected_boxplot_feature = st.selectbox("Select a feature for boxplot", numerical_features)
+        if selected_boxplot_feature:
+            fig = px.box(df, y=selected_boxplot_feature, title=f'Distribution of {selected_boxplot_feature}')
+            st.plotly_chart(fig)
 
-        for model_name, model in classifiers.items():
-            st.write(f"Training {model_name}...")
-            progress = st.progress(0)
-            start_time = time.time()
-            for i in range(1, 101):
-                time.sleep(0.01)
-                progress.progress(i)
-            model.fit(X_train, y_train)
-            training_time = time.time() - start_time
-            pred = model.predict(X_test)
-            accuracy = accuracy_score(y_test, pred)
-            model_results.append((model_name, accuracy, pred, training_time))
+        # Model training and prediction
+        st.subheader("Train a Classification Model")
 
-        # Find the best model
-        best_model = max(model_results, key=lambda x: x[1])
-        st.write(f"## Best Model: {best_model[0]}")
-        st.write("Accuracy:", best_model[1])
-        st.write("Training Time (seconds):", round(best_model[3], 2))
+        if feature_columns and target_column:
+            X = df[feature_columns]
+            y = df[target_column]
 
-        # Visualize accuracies of all models
-        st.subheader("Model Comparison")
-        model_names = [result[0] for result in model_results]
-        accuracies = [result[1] for result in model_results]
-        training_times = [result[3] for result in model_results]
+            scaler = StandardScaler()
+            X = scaler.fit_transform(X)
 
-        comparison_df = pd.DataFrame({
-            'Model': model_names,
-            'Accuracy': accuracies,
-            'Training Time (s)': training_times
-        })
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
-        st.dataframe(comparison_df)
+            model_results = []
 
-        fig = px.bar(comparison_df, x='Model', y='Accuracy', color='Model', text='Accuracy', title='Model Accuracy Comparison')
-        fig.update_traces(textposition='outside')
-        st.plotly_chart(fig)
+            classifiers = {
+                "Random Forest": RandomForestClassifier(random_state=42),
+                "Gradient Boosting": GradientBoostingClassifier(random_state=42),
+                "MLP Classifier": MLPClassifier(random_state=42, max_iter=1000),
+                "SVM Classifier": SVC(random_state=42, probability=True),
+                "Decision Tree": DecisionTreeClassifier(random_state=42),
+                "Logistic Regression": LogisticRegression(random_state=42)
+            }
 
-        # Confusion Matrix Heatmap
-        st.write("Confusion Matrix:")
-        cm = confusion_matrix(y_test, best_model[2])
-        fig = px.imshow(cm, text_auto=True, color_continuous_scale='Viridis', title=f'Confusion Matrix - {best_model[0]}', labels={'x': 'Predicted', 'y': 'Actual'})
-        st.plotly_chart(fig)
+            for model_name, model in classifiers.items():
+                st.write(f"Training {model_name}...")
+                progress = st.progress(0)
+                start_time = time.time()
+                for i in range(1, 101):
+                    time.sleep(0.01)
+                    progress.progress(i)
+                model.fit(X_train, y_train)
+                training_time = time.time() - start_time
+                pred = model.predict(X_test)
+                accuracy = accuracy_score(y_test, pred)
+                model_results.append((model_name, accuracy, pred, training_time))
 
-        st.write("Classification Report:")
-        st.text(classification_report(y_test, best_model[2]))
+            # Find the best model
+            best_model = max(model_results, key=lambda x: x[1])
+            st.write(f"## Best Model: {best_model[0]}")
+            st.write("Accuracy:", best_model[1])
+            st.write("Training Time (seconds):", round(best_model[3], 2))
+
+            # Visualize accuracies of all models
+            st.subheader("Model Comparison")
+            model_names = [result[0] for result in model_results]
+            accuracies = [result[1] for result in model_results]
+            training_times = [result[3] for result in model_results]
+
+            comparison_df = pd.DataFrame({
+                'Model': model_names,
+                'Accuracy': accuracies,
+                'Training Time (s)': training_times
+            })
+
+            st.dataframe(comparison_df)
+
+            fig = px.bar(comparison_df, x='Model', y='Accuracy', color='Model', text='Accuracy', title='Model Accuracy Comparison')
+            fig.update_traces(textposition='outside')
+            st.plotly_chart(fig)
+
+            # Confusion Matrix Heatmap
+            st.write("Confusion Matrix:")
+            cm = confusion_matrix(y_test, best_model[2])
+            fig = px.imshow(cm, text_auto=True, color_continuous_scale='Viridis', title=f'Confusion Matrix - {best_model[0]}', labels={'x': 'Predicted', 'y': 'Actual'})
+            st.plotly_chart(fig)
+
+            st.write("Classification Report:")
+            st.text(classification_report(y_test, best_model[2]))
+
+    else:
+        st.write("No target column selected. Performing exploratory data analysis instead.")
+        # EDA if no target column is selected
+        st.subheader("Exploratory Data Analysis")
+        st.write("### Pairplot")
+        fig = sns.pairplot(df)
+        st.pyplot(fig)
+
+        st.write("### Distribution of Numerical Features")
+        for col in numeric_columns:
+            fig, ax = plt.subplots()
+            sns.histplot(df[col], kde=True, ax=ax)
+            ax.set_title(f"Distribution of {col}")
+            st.pyplot(fig)
 
     # Download preprocessed dataset
     st.subheader("Download Preprocessed Dataset")
