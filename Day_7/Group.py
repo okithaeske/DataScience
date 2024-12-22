@@ -4,21 +4,20 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 import plotly.express as px
-from sklearn.preprocessing import LabelEncoder, StandardScaler
+import plotly.graph_objects as go
+from sklearn.preprocessing import LabelEncoder
 from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.svm import SVC
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, confusion_matrix, classification_report
 import time
 
 # Set page configuration
-st.set_page_config(page_title="General Dataset Analysis and Classification", layout="wide")
+st.set_page_config(page_title="Student Depression Analysis", layout="wide")
 
 # Streamlit app title
-st.title("General Dataset Analysis and Classification")
+st.title("Student Depression Analysis")
 
 # Sidebar for file upload
 st.sidebar.header("Upload Dataset")
@@ -28,21 +27,6 @@ if uploaded_file:
     # Load the dataset
     df = pd.read_csv(uploaded_file)
     st.write("### Dataset Preview")
-    st.dataframe(df.head())
-
-    # Handle missing values
-    st.sidebar.subheader("Missing Value Handling")
-    missing_strategy = st.sidebar.selectbox("Select strategy for handling missing values", ["Drop Rows", "Fill with Mean", "Fill with Median", "Fill with Mode"])
-    if missing_strategy == "Drop Rows":
-        df = df.dropna()
-    elif missing_strategy == "Fill with Mean":
-        df = df.fillna(df.mean())
-    elif missing_strategy == "Fill with Median":
-        df = df.fillna(df.median())
-    elif missing_strategy == "Fill with Mode":
-        df = df.fillna(df.mode().iloc[0])
-
-    st.write("### Dataset After Missing Value Handling")
     st.dataframe(df.head())
 
     # Preprocess the dataset
@@ -57,136 +41,128 @@ if uploaded_file:
     st.subheader("Data Summary")
     st.write(df.describe())
 
-    # Automatic Target Column Detection
-    st.subheader("Automatic Target Column Detection")
+    # Correlation matrix
+    st.subheader("Correlation Matrix")
+    selected_columns = st.multiselect("Select columns for correlation matrix", df.columns.tolist(), default=df.columns.tolist())
+    if selected_columns:
+        correlation_matrix = df[selected_columns].corr()
+        fig = px.imshow(correlation_matrix, text_auto=True, color_continuous_scale='Viridis', title="Correlation Matrix", width=800, height=800)
+        st.plotly_chart(fig)
 
-    # Determine potential target columns
-    numeric_columns = df.select_dtypes(include=['float64', 'int64']).columns.tolist()
-    categorical_columns = df.select_dtypes(include=['object', 'category']).columns.tolist()
+    # Boxplots
+    st.subheader("Boxplots: Numerical Features by Depression")
+    numerical_features = df.select_dtypes(include=['float64', 'int64']).columns
+    numerical_features = [feature for feature in numerical_features if feature not in ['Gender', 'Depression']]
 
-    # Find a column with a high correlation to other columns
-    if len(numeric_columns) > 1:
-        correlation_with_others = df[numeric_columns].corr().abs().sum().sort_values(ascending=False)
-        suggested_target = correlation_with_others.index[0]  # Most correlated column
-    else:
-        # Fallback to categorical columns with limited unique values
-        unique_counts = df[categorical_columns].nunique()
-        suggested_target = unique_counts.idxmin() if not unique_counts.empty else None
+    selected_boxplot_feature = st.selectbox("Select a feature for boxplot", numerical_features)
+    if selected_boxplot_feature:
+        fig = px.box(df, x='Depression', y=selected_boxplot_feature, color='Depression', title=f'Depression vs {selected_boxplot_feature}')
+        st.plotly_chart(fig)
 
-    if suggested_target:
-        st.write(f"Suggested Target Column: **{suggested_target}** (based on correlation/uniqueness)")
-    else:
-        st.write("No clear target column identified. Please select manually or proceed with exploratory analysis.")
+    # Bar chart for men and women with depression
+    st.subheader("Comparison of Men and Women with Depression")
+    total_depression_count = len(df[df['Depression'] == 1])
+    men_depression_count = len(df[(df['Gender'] == 1) & (df['Depression'] == 1)])
+    women_depression_count = len(df[(df['Gender'] == 0) & (df['Depression'] == 1)])
 
-    # Allow user to select or override the target column
-    target_column = st.selectbox("Select the target column", [None] + df.columns.tolist(), index=0 if not suggested_target else df.columns.get_loc(suggested_target) + 1)
+    st.write("Total count of people with depression:", total_depression_count)
+    st.write("Men with depression:", men_depression_count)
+    st.write("Women with depression:", women_depression_count)
 
-    if target_column:
-        # Select feature columns excluding the target
-        feature_columns = st.multiselect(
-            "Select feature columns", df.columns.tolist(), default=[col for col in df.columns if col != target_column]
-        )
+    categories = ['Men with Depression', 'Women with Depression']
+    counts = [men_depression_count, women_depression_count]
 
-        # Correlation matrix
-        st.subheader("Correlation Matrix")
-        selected_columns = st.multiselect("Select columns for correlation matrix", df.columns.tolist(), default=df.columns.tolist())
-        if selected_columns:
-            correlation_matrix = df[selected_columns].corr()
-            fig = px.imshow(correlation_matrix, text_auto=True, color_continuous_scale='Viridis', title="Correlation Matrix", width=800, height=800)
-            st.plotly_chart(fig)
+    fig = px.bar(x=categories, y=counts, text=counts, title="Comparison of Men and Women with Depression", labels={'x': 'Category', 'y': 'Count'}, color=categories)
+    fig.update_traces(textposition='outside')
+    st.plotly_chart(fig)
 
-        # Boxplots
-        st.subheader("Boxplots: Numerical Features")
-        numerical_features = df.select_dtypes(include=['float64', 'int64']).columns
+    # Model training and prediction
+    st.subheader("Train a Classification Model")
+    target_column = st.selectbox("Select the target column", df.columns.tolist(), index=df.columns.get_loc('Depression'))
+    feature_columns = st.multiselect("Select feature columns", df.columns.tolist(), default=[col for col in df.columns if col != target_column])
 
-        selected_boxplot_feature = st.selectbox("Select a feature for boxplot", numerical_features)
-        if selected_boxplot_feature:
-            fig = px.box(df, y=selected_boxplot_feature, title=f'Distribution of {selected_boxplot_feature}')
-            st.plotly_chart(fig)
+    if feature_columns and target_column:
+        X = df[feature_columns]
+        y = df[target_column]
 
-        # Model training and prediction
-        st.subheader("Train a Classification Model")
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
-        if feature_columns and target_column:
-            X = df[feature_columns]
-            y = df[target_column]
+        model_results = []
 
-            scaler = StandardScaler()
-            X = scaler.fit_transform(X)
+        # Random Forest Classifier
+        st.write("Training Random Forest Classifier...")
+        rf_progress = st.progress(0)
+        rf_model = RandomForestClassifier(random_state=42)
+        start_time = time.time()
+        for i in range(1, 101):
+            time.sleep(0.01)
+            rf_progress.progress(i)
+        rf_model.fit(X_train, y_train)
+        rf_training_time = time.time() - start_time
+        rf_pred = rf_model.predict(X_test)
+        rf_accuracy = accuracy_score(y_test, rf_pred)
+        model_results.append(("Random Forest", rf_accuracy, rf_pred, rf_training_time))
 
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+        # MLP Classifier
+        st.write("Training MLP Classifier...")
+        mlp_progress = st.progress(0)
+        mlp_model = MLPClassifier(random_state=42, max_iter=1000)
+        start_time = time.time()
+        for i in range(1, 101):
+            time.sleep(0.01)
+            mlp_progress.progress(i)
+        mlp_model.fit(X_train, y_train)
+        mlp_training_time = time.time() - start_time
+        mlp_pred = mlp_model.predict(X_test)
+        mlp_accuracy = accuracy_score(y_test, mlp_pred)
+        model_results.append(("MLP Classifier", mlp_accuracy, mlp_pred, mlp_training_time))
 
-            model_results = []
+        # Support Vector Machine Classifier
+        st.write("Training SVM Classifier...")
+        svm_progress = st.progress(0)
+        svm_model = SVC(random_state=42)
+        start_time = time.time()
+        for i in range(1, 101):
+            time.sleep(0.01)
+            svm_progress.progress(i)
+        svm_model.fit(X_train, y_train)
+        svm_training_time = time.time() - start_time
+        svm_pred = svm_model.predict(X_test)
+        svm_accuracy = accuracy_score(y_test, svm_pred)
+        model_results.append(("SVM Classifier", svm_accuracy, svm_pred, svm_training_time))
 
-            classifiers = {
-                "Random Forest": RandomForestClassifier(random_state=42),
-                "Gradient Boosting": GradientBoostingClassifier(random_state=42),
-                "MLP Classifier": MLPClassifier(random_state=42, max_iter=1000),
-                "SVM Classifier": SVC(random_state=42, probability=True),
-                "Decision Tree": DecisionTreeClassifier(random_state=42),
-                "Logistic Regression": LogisticRegression(random_state=42)
-            }
+        # Find the best model
+        best_model = max(model_results, key=lambda x: x[1])
+        st.write(f"## Best Model: {best_model[0]}")
+        st.write("Accuracy:", best_model[1])
+        st.write("Training Time (seconds):", round(best_model[3], 2))
 
-            for model_name, model in classifiers.items():
-                st.write(f"Training {model_name}...")
-                progress = st.progress(0)
-                start_time = time.time()
-                for i in range(1, 101):
-                    time.sleep(0.01)
-                    progress.progress(i)
-                model.fit(X_train, y_train)
-                training_time = time.time() - start_time
-                pred = model.predict(X_test)
-                accuracy = accuracy_score(y_test, pred)
-                model_results.append((model_name, accuracy, pred, training_time))
+        # Visualize accuracies of all models
+        st.subheader("Model Comparison")
+        model_names = [result[0] for result in model_results]
+        accuracies = [result[1] for result in model_results]
+        training_times = [result[3] for result in model_results]
 
-            # Find the best model
-            best_model = max(model_results, key=lambda x: x[1])
-            st.write(f"## Best Model: {best_model[0]}")
-            st.write("Accuracy:", best_model[1])
-            st.write("Training Time (seconds):", round(best_model[3], 2))
+        comparison_df = pd.DataFrame({
+            'Model': model_names,
+            'Accuracy': accuracies,
+            'Training Time (s)': training_times
+        })
 
-            # Visualize accuracies of all models
-            st.subheader("Model Comparison")
-            model_names = [result[0] for result in model_results]
-            accuracies = [result[1] for result in model_results]
-            training_times = [result[3] for result in model_results]
+        st.dataframe(comparison_df)
 
-            comparison_df = pd.DataFrame({
-                'Model': model_names,
-                'Accuracy': accuracies,
-                'Training Time (s)': training_times
-            })
+        fig = px.bar(comparison_df, x='Model', y='Accuracy', color='Model', text='Accuracy', title='Model Accuracy Comparison')
+        fig.update_traces(textposition='outside')
+        st.plotly_chart(fig)
 
-            st.dataframe(comparison_df)
+        # Confusion Matrix Heatmap
+        st.write("Confusion Matrix:")
+        cm = confusion_matrix(y_test, best_model[2])
+        fig = px.imshow(cm, text_auto=True, color_continuous_scale='Viridis', title=f'Confusion Matrix - {best_model[0]}', labels={'x': 'Predicted', 'y': 'Actual'})
+        st.plotly_chart(fig)
 
-            fig = px.bar(comparison_df, x='Model', y='Accuracy', color='Model', text='Accuracy', title='Model Accuracy Comparison')
-            fig.update_traces(textposition='outside')
-            st.plotly_chart(fig)
-
-            # Confusion Matrix Heatmap
-            st.write("Confusion Matrix:")
-            cm = confusion_matrix(y_test, best_model[2])
-            fig = px.imshow(cm, text_auto=True, color_continuous_scale='Viridis', title=f'Confusion Matrix - {best_model[0]}', labels={'x': 'Predicted', 'y': 'Actual'})
-            st.plotly_chart(fig)
-
-            st.write("Classification Report:")
-            st.text(classification_report(y_test, best_model[2]))
-
-    else:
-        st.write("No target column selected. Performing exploratory data analysis instead.")
-        # EDA if no target column is selected
-        st.subheader("Exploratory Data Analysis")
-        st.write("### Pairplot")
-        fig = sns.pairplot(df)
-        st.pyplot(fig)
-
-        st.write("### Distribution of Numerical Features")
-        for col in numeric_columns:
-            fig, ax = plt.subplots()
-            sns.histplot(df[col], kde=True, ax=ax)
-            ax.set_title(f"Distribution of {col}")
-            st.pyplot(fig)
+        st.write("Classification Report:")
+        st.text(classification_report(y_test, best_model[2]))
 
     # Download preprocessed dataset
     st.subheader("Download Preprocessed Dataset")
